@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solo Leveling - Penalty System</title>
+    <style>
+        :root {
+            --system-blue: #00d2ff;
+            --system-dark: #050510;
+            --penalty-red: #ff4d4d;
+        }
+
+        body {
+            background: var(--system-dark);
+            color: #eee;
+            font-family: 'Segoe UI', sans-serif;
+            margin: 0; padding: 20px;
+            display: flex; flex-direction: column; align-items: center;
+            min-height: 100vh;
+            background-image: radial-gradient(circle at top, #1a2a4f 0%, #050510 70%);
+        }
+
+        .header { text-align: center; width: 100%; max-width: 500px; border-bottom: 2px solid var(--system-blue); padding-bottom: 10px; margin-bottom: 20px; }
+        
+        .stats-panel {
+            background: rgba(10, 20, 40, 0.9);
+            border: 1px solid var(--system-blue);
+            width: 100%; max-width: 500px; padding: 20px;
+            border-radius: 8px; box-shadow: 0 0 20px rgba(0, 210, 255, 0.2);
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        .lvl-badge {
+            position: absolute; top: 10px; left: 10px;
+            background: var(--system-blue); color: #000;
+            padding: 2px 10px; font-weight: bold; border-radius: 4px; font-size: 0.9rem;
+        }
+
+        .rank-info { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 15px; }
+        .rank-value { font-size: 4.5rem; font-weight: bold; line-height: 0.8; }
+
+        .xp-container { width: 100%; background: #111; height: 10px; border-radius: 5px; overflow: hidden; border: 1px solid #333; margin-top: 10px; }
+        .xp-bar { height: 100%; width: 0%; background: linear-gradient(90deg, #00d2ff, #3a7bd5); transition: width 0.6s ease-in-out; }
+
+        .status-msg { font-size: 0.75rem; color: #00ffaa; margin-top: 5px; text-align: center; min-height: 1rem; }
+        .penalty-msg { color: var(--penalty-red) !important; font-weight: bold; }
+
+        .tasks-container { width: 100%; max-width: 500px; }
+
+        .task-card {
+            background: rgba(20, 30, 60, 0.8);
+            border-right: 4px solid var(--system-blue);
+            margin: 12px 0; padding: 18px;
+            display: flex; align-items: center;
+            cursor: pointer; border-radius: 4px; transition: 0.3s;
+        }
+
+        .task-card.completed { border-right-color: #00ffaa; opacity: 0.3; filter: grayscale(1); }
+        input[type="checkbox"] { width: 22px; height: 22px; margin-left: 15px; accent-color: var(--system-blue); }
+        .category-badge { font-size: 0.7rem; padding: 3px 8px; border: 1px solid var(--system-blue); border-radius: 4px; margin-right: auto; color: var(--system-blue); }
+        #saudi-time { color: var(--system-blue); font-family: monospace; font-size: 1.1rem; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>SYSTEM STATUS</h1>
+        <div id="saudi-time">--:--:--</div>
+    </div>
+
+    <div class="stats-panel">
+        <div class="lvl-badge" id="lvl-display">LVL. 1</div>
+        <div class="rank-info">
+            <div>
+                <span style="color: var(--system-blue); font-size: 0.8rem;">RANK</span>
+                <div class="rank-value" id="rank-display">F</div>
+            </div>
+            <div style="text-align: left;">
+                <span style="color: #888; font-size: 0.8rem;">TOTAL XP</span>
+                <div id="total-points" style="font-size: 1.5rem; font-weight: bold; color: #fff;">0</div>
+            </div>
+        </div>
+        <div class="xp-container"><div class="xp-bar" id="xp-bar"></div></div>
+        <div class="status-msg" id="status-msg"></div>
+    </div>
+
+    <div class="tasks-container" id="tasks-list"></div>
+
+    <script>
+        const taskDatabase = {
+            physical: [
+                { f: "ضغط 10 عدات", d: "ضغط 25 عدة", a: "ضغط 50 عدة", r: "ضغط 100 عدة" },
+                { f: "سكوات 15 عدة", d: "سكوات 30 عدة", a: "سكوات 60 عدة", r: "سكوات 150 عدة" },
+                { f: "بلانك 30 ثانية", d: "بلانك 60 ثانية", a: "بلانك 2 دقيقة", r: "بلانك 5 دقائق" }
+            ],
+            discipline: [
+                { f: "ترتيب السرير", d: "تنظيم المكتب", r: "تنظيف المنزل بالكامل" },
+                { f: "شرب لتر ماء", d: "بدون سكر اليوم", r: "صيام متقطع 16 ساعة" }
+            ],
+            mental: [
+                { f: "قراءة 5 ص", d: "قراءة 20 ص", r: "إنهاء نصف كتاب" }
+            ]
+        };
+
+        let systemData = JSON.parse(localStorage.getItem('solo_penalty_v1')) || {
+            points: 0, lastUpdate: '', dailyTasks: [], lastPenalty: 0
+        };
+
+        function getRankConfig(pts) {
+            if (pts >= 3000) return { rank: 'R', reward: 6, pen: 8, req: 50, color: '#ff4d4d', diff: 'r' };
+            if (pts >= 2000) return { rank: 'SS', reward: 6, pen: 8, req: 40, color: '#ff00ff', diff: 'r' };
+            if (pts >= 1200) return { rank: 'S', reward: 4, pen: 6, req: 30, color: '#00ffaa', diff: 'a' };
+            if (pts >= 800) return { rank: 'A', reward: 4, pen: 6, req: 25, color: '#ffdd57', diff: 'a' };
+            if (pts >= 500) return { rank: 'B', reward: 4, pen: 6, req: 20, color: '#ffdd57', diff: 'd' };
+            if (pts >= 300) return { rank: 'C', reward: 3, pen: 5, req: 15, color: '#ffdd57', diff: 'd' };
+            if (pts >= 150) return { rank: 'D', reward: 3, pen: 5, req: 12, color: '#ffdd57', diff: 'd' };
+            return { rank: pts >= 70 ? 'E' : 'F', reward: 2, pen: 3, req: 10, color: pts >= 70 ? '#ffdd57' : '#888', diff: 'f' };
+        }
+
+        function calculateLevel(pts) {
+            let tempPts = pts; let level = 1;
+            while (true) {
+                let currentReq = (level < 6) ? 5 : getRankConfig(pts - (pts - tempPts)).req;
+                if (tempPts < currentReq) break;
+                tempPts -= currentReq; level++;
+            }
+            let displayReq = (level < 6) ? 5 : getRankConfig(pts).req;
+            return { level, progress: (tempPts / displayReq) * 100, displayReq };
+        }
+
+        function updateUI() {
+            const config = getRankConfig(systemData.points);
+            const lvData = calculateLevel(systemData.points);
+            document.getElementById('lvl-display').innerText = `LVL. ${lvData.level}`;
+            const rd = document.getElementById('rank-display');
+            rd.innerText = config.rank; rd.style.color = config.color;
+            rd.style.textShadow = `0 0 20px ${config.color}`;
+            document.getElementById('total-points').innerText = systemData.points;
+            document.getElementById('xp-bar').style.width = lvData.progress + '%';
+            
+            let statusField = document.getElementById('status-msg');
+            if(systemData.lastPenalty > 0) {
+                statusField.innerText = `⚠️ تم تطبيق عقوبة: خصم ${systemData.lastPenalty} نقاط لتجاهل المهام!`;
+                statusField.className = "status-msg penalty-msg";
+            } else {
+                statusField.innerText = `مكافأة المهمة: +${config.reward} | خصم الإخفاق: -${config.pen}`;
+                statusField.className = "status-msg";
+            }
+        }
+
+        function generateTasks() {
+            const config = getRankConfig(systemData.points);
+            const diff = config.diff;
+            const shuffle = (arr) => arr.sort(() => Math.random() - 0.5);
+            const p = shuffle([...taskDatabase.physical]).slice(0, 2).map(t => ({n: t[diff] || t['f'], c: 'جسدي', d: false}));
+            const d = shuffle([...taskDatabase.discipline]).slice(0, 2).map(t => ({n: t[diff] || t['f'], c: 'انضباط', d: false}));
+            const m = shuffle([...taskDatabase.mental]).slice(0, 1).map(t => ({n: t[diff] || t['f'], c: 'عقلي', d: false}));
+            return [...p, ...d, ...m];
+        }
+
+        function checkDailyCycle() {
+            const ksaDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+            
+            if (systemData.lastUpdate && systemData.lastUpdate !== ksaDate) {
+                let totalPenalty = 0;
+                // فحص المهام غير المكتملة من الأمس
+                systemData.dailyTasks.forEach(task => {
+                    if (!task.d) {
+                        const config = getRankConfig(systemData.points);
+                        totalPenalty += config.pen;
+                    }
+                });
+
+                systemData.points -= totalPenalty;
+                if(systemData.points < 0) systemData.points = 0;
+                systemData.lastPenalty = totalPenalty;
+            } else if (systemData.lastUpdate === ksaDate) {
+                // تصفير رسالة العقوبة إذا مر يوم على رؤيتها أو قمت بتعديل مهام اليوم
+                // (اختياري: يمكن تركها حتى يكمل أول مهمة)
+            }
+
+            if (systemData.lastUpdate !== ksaDate) {
+                systemData.dailyTasks = generateTasks();
+                systemData.lastUpdate = ksaDate;
+                save();
+            }
+        }
+
+        function toggleTask(i) {
+            const config = getRankConfig(systemData.points);
+            systemData.dailyTasks[i].d = !systemData.dailyTasks[i].d;
+            systemData.points += systemData.dailyTasks[i].d ? config.reward : -config.reward;
+            if(systemData.points < 0) systemData.points = 0;
+            systemData.lastPenalty = 0; // مسح رسالة العقوبة عند التفاعل
+            save(); render(); updateUI();
+        }
+
+        function render() {
+            const container = document.getElementById('tasks-list');
+            container.innerHTML = '';
+            systemData.dailyTasks.forEach((t, i) => {
+                const card = document.createElement('div');
+                card.className = `task-card ${t.d ? 'completed' : ''}`;
+                card.onclick = () => toggleTask(i);
+                card.innerHTML = `<input type="checkbox" ${t.d ? 'checked' : ''}><span>${t.n}</span><span class="category-badge">${t.c}</span>`;
+                container.appendChild(card);
+            });
+        }
+
+        function save() { localStorage.setItem('solo_penalty_v1', JSON.stringify(systemData)); }
+
+        setInterval(() => {
+            document.getElementById('saudi-time').innerText = new Intl.DateTimeFormat('ar-SA', { timeZone: 'Asia/Riyadh', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date());
+        }, 1000);
+
+        checkDailyCycle();
+        render();
+        updateUI();
+    </script>
+</body>
+</html>
